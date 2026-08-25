@@ -70,16 +70,10 @@ substances tables (it controls what gets indexed into the long
    that mounts `/scratch/lemieuxs/pubchem/`). First real-data task: parse
    one Substance `.sdf.gz` record by hand and confirm/correct these
    constants before trusting a full build.
-2. **Where do the raw Substance dumps live?** `scripts/build_substances.jl`
-   guesses a `substances` dir alongside the existing `compounds` one:
-   confirm/adjust.
-3. **Scale.** `build_identifier_index` loads full `compounds`/`substances`/
+2. **Scale.** `build_identifier_index` loads full `compounds`/`substances`/
    `identifiers` tables into memory and builds an in-process `Dict` +
    `groupby` index. Fine for a subset, but at full PubChem size (~118M
    compounds, ~300M+ substances) this may need to move to something that
    doesn't require materializing everything per session, e.g. DuckDB
    querying the Arrow files directly. Deferred until we know the actual
    working-set size after a real build.
-4. **`test.jld2`** in the parent directory (2.2 GB) reports zero JLD2 keys
-   when opened, looks like a stale/incomplete artifact from earlier
-   exploration, not consumed by anything here.
