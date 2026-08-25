@@ -1,0 +1,20 @@
+name = "PubChemLocal"
+uuid = "e97287bf-c4d7-4bb5-9ccf-fde697ca55ad"
+authors = ["Sebastien Lemieux", "Nicolas Jacquin"]
+version = "0.1.0"
+
+[deps]
+Arrow = "69666777-d1a9-59fb-9406-91d4454c9d45"
+CodecZlib = "944b1d66-785c-5afd-91f1-9de20f533193"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+RDKitMinimalLib = "44044271-7623-48dc-8250-42433c44e4b7"
+SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
+
+[compat]
+julia = "1.10"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]

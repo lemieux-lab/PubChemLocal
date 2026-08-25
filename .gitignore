@@ -1,0 +1,12 @@
+# Host-specific run entry points (hardcoded data paths) — not part of the
+# installable package, keep them local rather than committing a guessed or
+# machine-specific path.
+/scripts
+
+# Julia
+Manifest.toml
+/docs/build/
+
+# OS / editor noise
+.DS_Store
+*.swp
