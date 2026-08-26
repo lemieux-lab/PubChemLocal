@@ -88,18 +88,38 @@ ethanol
         @test Set(df[!, "PUBCHEM_COMPOUND_CID"]) == Set(["887", "702"])
         @test all(!isempty, df.inchikey)
         @test length(unique(df.mkey)) == 2
+
+        # a multi-line tag (e.g. PUBCHEM_BONDANNOTATIONS in real data) must be
+        # kept in full, newline-joined, not truncated to its first line
+        multi = """
+        one atom placeholder
+             RDKit          2D
+
+          1  0  0  0  0  0  0  0  0  0999 V2000
+            0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+        M  END
+        > <PUBCHEM_COMPOUND_CID>
+        1
+
+        > <PUBCHEM_BONDANNOTATIONS>
+        8 9 6
+        8 10 6
+
+        \$\$\$\$
+        """
+        mdf = parse_compounds(PubChemLocal.split_records(multi))
+        @test mdf[1, "PUBCHEM_BONDANNOTATIONS"] == "8 9 6\n8 10 6"
     end
 
     @testset "substances tables + identify" begin
         sub1 = """
         substance placeholder
 
-        \$\$\$\$
         > <PUBCHEM_SUBSTANCE_ID>
         1001
 
-        > <PUBCHEM_CID>
-        887
+        > <PUBCHEM_CID_ASSOCIATIONS>
+        887  1
 
         > <PUBCHEM_EXT_DATASOURCE_NAME>
         TestVendor
@@ -114,8 +134,8 @@ ethanol
         > <PUBCHEM_SUBSTANCE_ID>
         1002
 
-        > <PUBCHEM_CID>
-        702
+        > <PUBCHEM_CID_ASSOCIATIONS>
+        702  1
 
         > <PUBCHEM_EXT_DATASOURCE_NAME>
         TestVendor
@@ -124,19 +144,41 @@ ethanol
         CAT-702
 
         """
-        records = [sub1, sub2]
+        sub3 = """
+        substance placeholder
+
+        > <PUBCHEM_SUBSTANCE_ID>
+        1003
+
+        > <PUBCHEM_CID_ASSOCIATIONS>
+        887  1
+        702  2
+
+        > <PUBCHEM_EXT_DATASOURCE_NAME>
+        TestVendor
+
+        > <PUBCHEM_EXT_DATASOURCE_REGID>
+        CAT-BOTH
+
+        """
+        records = [sub1, sub2, sub3]
         subs = parse_substances(records)
-        @test nrow(subs.substances) == 2
-        @test Set(subs.substances.cid) == Set(["887", "702"])
-        @test nrow(subs.identifiers) == 2
-        @test Set(subs.identifiers.value) == Set(["CAT-887", "CAT-702"])
+        @test nrow(subs.substances) == 3
+        @test nrow(subs.cid_links) == 4  # sub1: 1, sub2: 1, sub3: 2
+        @test Set(subs.cid_links[subs.cid_links.sid .== "1003", :cid]) == Set(["887", "702"])
+        @test nrow(subs.identifiers) == 3
+        @test Set(subs.identifiers.value) == Set(["CAT-887", "CAT-702", "CAT-BOTH"])
 
         compounds = parse_compounds(PubChemLocal.split_records(METHANOL * ETHANOL))
 
-        index = build_identifier_index(subs.identifiers, subs.substances, compounds)
+        index = build_identifier_index(subs.identifiers, subs.cid_links, compounds)
         hit = identify("CAT-887", index)
         @test nrow(hit) == 1
         @test hit[1, "PUBCHEM_COMPOUND_CID"] == "887"
+
+        both = identify("CAT-BOTH", index)  # one substance linked to two CIDs
+        @test nrow(both) == 2
+        @test Set(both[!, "PUBCHEM_COMPOUND_CID"]) == Set(["887", "702"])
 
         miss = identify("no-such-id", index)
         @test nrow(miss) == 0
@@ -144,6 +186,41 @@ ethanol
         batch = identify(["CAT-887", "CAT-702", "no-such-id"], index)
         @test nrow(batch) == 2
         @test Set(batch.queried_id) == Set(["CAT-887", "CAT-702"])
+    end
+
+    @testset "structure lookup" begin
+        compounds = parse_compounds(PubChemLocal.split_records(METHANOL * ETHANOL))
+        index = build_structure_index(compounds)
+
+        hit = identify_by_smiles("CO", index)  # methanol
+        @test nrow(hit) == 1
+        @test hit[1, "PUBCHEM_COMPOUND_CID"] == "887"
+        @test hit[1, :match_tier] == "inchikey"
+
+        hit2 = identify_by_molblock(ETHANOL, index)
+        @test nrow(hit2) == 1
+        @test hit2[1, "PUBCHEM_COMPOUND_CID"] == "702"
+
+        miss = identify_by_smiles("c1ccccc1", index)  # benzene: not in this tiny table
+        @test nrow(miss) == 0
+
+        # methanol/ethanol have no stereoisomer to exercise a real
+        # inchikey-miss/mkey-hit fallback, so drive that path against a
+        # hand-built table instead
+        fake = DataFrame(cid=["1"], inchikey=["AAAAAAAAAAAAAA-BBBBBBBBBB-C"], mkey=["AAAAAAAAAAAAAA"])
+        fake_index = StructureIndex(groupby(fake, :inchikey), groupby(fake, :mkey))
+        query = MolIdentifiers("inchi", "AAAAAAAAAAAAAA-ZZZZZZZZZZ-D", "AAAAAAAAAAAAAA")
+
+        @test nrow(identify_by_structure(query, fake_index; tier=:inchikey)) == 0
+        loose = identify_by_structure(query, fake_index)  # :both -> falls back to mkey
+        @test nrow(loose) == 1
+        @test loose[1, :match_tier] == "mkey"
+
+        # an unresolvable query must never match an unresolvable compound
+        # just because both have inchikey/mkey == ""
+        unresolved = DataFrame(cid=["2"], inchikey=[""], mkey=[""])
+        unresolved_index = StructureIndex(groupby(unresolved, :inchikey), groupby(unresolved, :mkey))
+        @test nrow(identify_by_structure(PubChemLocal.EMPTY_IDENTIFIERS, unresolved_index)) == 0
     end
 
 end

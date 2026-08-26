@@ -2,9 +2,8 @@
 # PubChem's PUG REST `xref` endpoint (a vendor catalog number, a CAS number,
 # ...), find the matching compound(s) locally instead of over the network.
 #
-# *** Verify against real data: the Compound SDF's own CID tag is assumed
-# *** to be "PUBCHEM_COMPOUND_CID" below — confirm and adjust `cid_tag` if
-# *** it turns out to be spelled differently.
+# COMPOUND_CID_TAG below is confirmed against a real Compound .sdf.gz record
+# (2026-08-26).
 #
 # Scale note: at full PubChem size (~118M compounds, ~300M+ substances)
 # repeatedly `filter`-ing the raw tables per query is not viable. The index
@@ -23,7 +22,7 @@ const COMPOUND_CID_TAG = "PUBCHEM_COMPOUND_CID"
 """
     IdentifierIndex
 
-Precomputed `identifiers -> substances -> compounds` lookup structure, built
+Precomputed `identifiers -> cid_links -> compounds` lookup structure, built
 once with [`build_identifier_index`](@ref) and then queried repeatedly via
 [`identify`](@ref) without re-scanning the source tables each time.
 """
@@ -34,33 +33,42 @@ struct IdentifierIndex
 end
 
 """
-    build_identifier_index(identifiers, substances, compounds;
+    build_identifier_index(identifiers, cid_links, compounds;
                             tags=DEFAULT_IDENTIFIER_TAGS, cid_tag=COMPOUND_CID_TAG)
         -> IdentifierIndex
 
 - `identifiers`: long-format table from [`parse_substances`](@ref)/
   [`build_substances_tables`](@ref) (columns `sid`, `tag`, `value`).
-- `substances`: that same function's other output (columns `sid`, `cid`,
-  `source`) — carries the SID -> CID link `identifiers` doesn't.
+- `cid_links`: that same function's other output (columns `sid`, `cid`,
+  `assoc_type`), carries the SID -> CID link(s) `identifiers` doesn't. A
+  substance can link to more than one CID (see [`CID_ASSOCIATIONS_TAG`](@ref));
+  all of them are used here, `assoc_type` isn't filtered on.
 - `compounds`: the wide table from [`parse_compounds`](@ref)/
   [`build_compounds_table`](@ref).
 - `tags`: which identifier tags to index (default: just the registry-ID tag
   Carl's PubChem-API lookups used). Must be a subset of the tags the
   `identifiers` table was actually built with.
 """
-function build_identifier_index(identifiers::AbstractDataFrame, substances::AbstractDataFrame,
+function build_identifier_index(identifiers::AbstractDataFrame, cid_links::AbstractDataFrame,
                                  compounds::AbstractDataFrame;
                                  tags::AbstractVector{<:AbstractString}=DEFAULT_IDENTIFIER_TAGS,
                                  cid_tag::AbstractString=COMPOUND_CID_TAG)
     tagset = Set(tags)
-    sid_to_cid = Dict{String,String}(zip(substances.sid, substances.cid))
+    sid_to_cids = Dict{String,Vector{String}}()
+    for row in eachrow(cid_links)
+        isempty(row.cid) && continue
+        push!(get!(() -> String[], sid_to_cids, row.sid), row.cid)
+    end
 
     value_to_cids = Dict{String,Vector{String}}()
     for row in eachrow(identifiers)
         row.tag in tagset || continue
-        cid = get(sid_to_cid, row.sid, "")
-        isempty(cid) && continue
-        push!(get!(() -> String[], value_to_cids, row.value), cid)
+        cids = get(sid_to_cids, row.sid, String[])
+        isempty(cids) && continue
+        dest = get!(() -> String[], value_to_cids, row.value)
+        for cid in cids
+            push!(dest, cid)
+        end
     end
 
     compounds_by_cid = groupby(compounds, cid_tag)
@@ -81,7 +89,7 @@ function identify(id::AbstractString, index::IdentifierIndex)
     isempty(cids) && return DataFrame()
 
     frames = DataFrame[]
-    for cid in cids
+    for cid in unique(cids)
         key = (cid,)
         haskey(index.compounds_by_cid, key) || continue
         push!(frames, DataFrame(index.compounds_by_cid[key]))

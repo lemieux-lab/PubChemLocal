@@ -5,6 +5,7 @@ include("identifiers.jl")
 include("compounds.jl")
 include("substances.jl")
 include("lookup.jl")
+include("structure.jl")
 
 # sdf.jl
 export read_gz_text, split_records, parse_tags
@@ -20,5 +21,9 @@ export parse_substances, substances_from_sdf, build_substances_tables, DEFAULT_I
 
 # lookup.jl
 export IdentifierIndex, build_identifier_index, identify
+
+# structure.jl
+export StructureIndex, build_structure_index, identify_by_structure,
+       identify_by_smiles, identify_by_molblock
 
 end # module PubChemLocal

@@ -2,7 +2,9 @@
 # (ftp.ncbi.nlm.nih.gov/pubchem/Compound/CURRENT-Full/SDF/*.sdf.gz).
 #
 # One row per CID: every SDF property tag found on the record, plus the
-# three computed columns (inchi, inchikey, mkey) from identifiers.jl.
+# three computed columns (inchi, inchikey, mkey) from identifiers.jl. A few
+# tags are multi-line in real data (see parse_compounds docstring); their
+# lines are newline-joined rather than truncated.
 #
 # This is a straight refactor of the original PubChem.jl script — same
 # threaded block-processing / checkpoint-file / resumable-block design,
@@ -15,10 +17,19 @@ using DataFrames, Arrow, SHA
     parse_compounds(records) -> DataFrame
 
 `records` is a vector of raw SDF record strings (as produced by
-[`split_records`](@ref)). Returns one row per record: every tag found
-via [`parse_tags`](@ref) (first value only — Compound records are, unlike
-Substance records, expected to be single-valued per tag) plus `inchi`,
-`inchikey`, `mkey` computed from the record's mol block.
+[`split_records`](@ref)). Returns one row per record: every tag found via
+[`parse_tags`](@ref) plus `inchi`, `inchikey`, `mkey` computed from the
+record's mol block.
+
+Most Compound tags are single-valued, but not all — `PUBCHEM_BONDANNOTATIONS`,
+`PUBCHEM_COORDINATE_TYPE` and `PUBCHEM_NONSTANDARDBOND` are confirmed
+multi-line in real data (2026-08-26 sample), and there may be others. Since
+this table is wide (one column per tag), a genuinely multi-valued tag's
+lines are newline-joined into that one cell rather than truncated to the
+first line — full content is kept, just not exploded into its own row/table
+the way `cid_links`/`identifiers` are for `substances` (none of these three
+feed `inchi`/`inchikey`/`mkey`, which come from RDKit on the mol block, not
+from these tags, and they're not identifiers anyone searches compounds by).
 """
 function parse_compounds(records::AbstractVector{<:AbstractString})
     n = length(records)
@@ -30,7 +41,7 @@ function parse_compounds(records::AbstractVector{<:AbstractString})
     for (i, record) in enumerate(records)
         for (tag, values) in parse_tags(record)
             col = get!(() -> fill("", n), props, tag)
-            col[i] = first(values)
+            col[i] = join(values, '\n')
         end
         ids = identifiers_from_molblock(record)
         inchi[i] = ids.inchi
