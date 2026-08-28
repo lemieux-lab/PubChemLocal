@@ -1,23 +1,27 @@
-# The actual point of the package: given an identifier as you'd hand it to
-# PubChem's PUG REST `xref` endpoint (a vendor catalog number, a CAS number,
-# ...), find the matching compound(s) locally instead of over the network.
-#
-# COMPOUND_CID_TAG below is confirmed against a real Compound .sdf.gz record
-# (2026-08-26).
-#
-# Scale note: at full PubChem size (~118M compounds, ~300M+ substances)
-# repeatedly `filter`-ing the raw tables per query is not viable. The index
-# built here (Dict value -> cids, plus grouping compounds by cid) turns
-# repeated identify() calls into O(1) dict lookups; it still requires both
-# full tables to be materialized in memory, which may itself become the
-# next bottleneck once running against the real bulk tables — if so, the
-# natural next step is pushing this down into DuckDB (reads the Arrow
-# files directly, no separate load step) rather than rebuilding the index
-# in-process each session.
+#=
+The actual point of the package: given an identifier as you'd hand it to
+PubChem's PUG REST `xref` endpoint (a vendor catalog number, a CAS number,
+...), find the matching compound(s) locally instead of over the network.
+
+COMPOUND_CID_TAG below is confirmed against a real Compound .sdf.gz record
+(2026-08-26).
+
+Scale note: at full PubChem size (~118M compounds, ~300M+ substances),
+repeatedly `filter`-ing the raw tables per query is not viable. The index
+built here (Dict value -> cids, plus grouping compounds by cid) turns
+repeated identify() calls into O(1) dict lookups. It still requires both
+full tables to be materialized in memory, which may itself become the next
+bottleneck once running against the real bulk tables. If so, the natural
+next step is pushing this down into DuckDB (reads the Arrow files directly,
+no separate load step) rather than rebuilding the index in-process each
+session.
+=#
 
 using DataFrames
 
 const COMPOUND_CID_TAG = "PUBCHEM_COMPOUND_CID"
+
+## Index ##
 
 """
     IdentifierIndex
@@ -25,10 +29,15 @@ const COMPOUND_CID_TAG = "PUBCHEM_COMPOUND_CID"
 Precomputed `identifiers -> cid_links -> compounds` lookup structure, built
 once with [`build_identifier_index`](@ref) and then queried repeatedly via
 [`identify`](@ref) without re-scanning the source tables each time.
+
+# Fields
+- `value_to_cids`: identifier value to the CID(s) it resolves to.
+- `compounds_by_cid`: `compounds` grouped by `cid_tag`.
+- `cid_tag`: which `compounds` column `compounds_by_cid` is grouped on.
 """
 struct IdentifierIndex
-    value_to_cids::Dict{String,Vector{String}}   # identifier value -> CID(s)
-    compounds_by_cid::GroupedDataFrame            # grouped `compounds`, by cid_tag
+    value_to_cids::Dict{String,Vector{String}}
+    compounds_by_cid::GroupedDataFrame
     cid_tag::String
 end
 
@@ -41,8 +50,8 @@ end
   [`build_substances_tables`](@ref) (columns `sid`, `tag`, `value`).
 - `cid_links`: that same function's other output (columns `sid`, `cid`,
   `assoc_type`), carries the SID -> CID link(s) `identifiers` doesn't. A
-  substance can link to more than one CID (see [`CID_ASSOCIATIONS_TAG`](@ref));
-  all of them are used here, `assoc_type` isn't filtered on.
+  substance can link to more than one CID (see [`CID_ASSOCIATIONS_TAG`](@ref)).
+  All of them are used here, `assoc_type` isn't filtered on.
 - `compounds`: the wide table from [`parse_compounds`](@ref)/
   [`build_compounds_table`](@ref).
 - `tags`: which identifier tags to index (default: just the registry-ID tag
@@ -75,13 +84,15 @@ function build_identifier_index(identifiers::AbstractDataFrame, cid_links::Abstr
     return IdentifierIndex(value_to_cids, compounds_by_cid, cid_tag)
 end
 
+## Lookup ##
+
 """
     identify(id, index::IdentifierIndex) -> DataFrame
 
 Resolve one external `id` (e.g. a vendor catalog number or CAS number) to
-compound rows, entirely against the locally-built, precomputed `index` —
-the local replacement for `xref/RegistryID/<id>/...` against the PubChem
-REST API. Returns an empty frame if `id` isn't found; possibly more than
+compound rows, entirely against the locally-built, precomputed `index`.
+The local replacement for `xref/RegistryID/<id>/...` against the PubChem
+REST API. Returns an empty frame if `id` isn't found, possibly more than
 one row if it resolves ambiguously to several CIDs.
 """
 function identify(id::AbstractString, index::IdentifierIndex)

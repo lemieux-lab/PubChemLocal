@@ -1,12 +1,16 @@
-# The other direction from lookup.jl: given a structure (SMILES or a mol
-# block) rather than an external identifier, find the matching row(s) in
-# the local `compounds` table directly — no substances/identifiers
-# involved. Mirrors the two-tier matching from the old intersect.jl script:
-# strict match on `inchikey` (the main merge key), falling back to the
-# looser `mkey` (same atoms/connectivity/charge, ignoring stereochemistry
-# and isotopes) when nothing matches exactly.
+#=
+The other direction from lookup.jl: given a structure (SMILES or a mol
+block) rather than an external identifier, find the matching row(s) in the
+local `compounds` table directly, no substances/identifiers involved.
+Mirrors the two-tier matching from the old intersect.jl script: strict
+match on `inchikey` (the main merge key), falling back to the looser
+`mkey` (same atoms/connectivity/charge, ignoring stereochemistry and
+isotopes) when nothing matches exactly.
+=#
 
 using DataFrames
+
+## Index ##
 
 """
     StructureIndex
@@ -15,6 +19,10 @@ Precomputed `compounds` groupings by `inchikey` and by `mkey`, built once
 with [`build_structure_index`](@ref) and then queried repeatedly via
 [`identify_by_structure`](@ref)/[`identify_by_smiles`](@ref)/
 [`identify_by_molblock`](@ref) without regrouping each call.
+
+# Fields
+- `by_inchikey`: `compounds` grouped by `inchikey`, for the strict tier.
+- `by_mkey`: `compounds` grouped by `mkey`, for the loose tier.
 """
 struct StructureIndex
     by_inchikey::GroupedDataFrame
@@ -37,14 +45,16 @@ function _group_lookup(gdf::GroupedDataFrame, key::AbstractString)
     return DataFrame(gdf[(key,)])
 end
 
+## Lookup ##
+
 """
     identify_by_structure(ids::MolIdentifiers, index::StructureIndex; tier=:both) -> DataFrame
 
 Resolve computed identifiers to `compounds` rows. `tier`:
 
-- `:inchikey` — exact match only (same compound, including stereochemistry).
-- `:mkey` — loose match only (same "graph": atoms, connectivity, charge).
-- `:both` (default) — try `:inchikey` first; if nothing matches, fall back
+- `:inchikey`: exact match only (same compound, including stereochemistry).
+- `:mkey`: loose match only (same "graph": atoms, connectivity, charge).
+- `:both` (default): try `:inchikey` first, if nothing matches, fall back
   to `:mkey`.
 
 Returns an empty frame if `ids` couldn't be computed in the first place

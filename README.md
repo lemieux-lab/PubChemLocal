@@ -7,7 +7,7 @@ direction: from an external identifier (vendor catalog number, CAS number,
 ...) to a compound, or from a structure (SMILES/mol block) to the matching
 compound(s) already in `compounds`.
 
-Status: **early scaffold**. Tag names are confirmed against real data
+Status: early scaffold. Tag names are confirmed against real data
 (2026-08-26): one real Compound and one real Substance record by hand, plus
 a ~5000-record multi-valued-tag sweep on each (using this package's own
 `parse_tags`) to check which tags are genuinely multi-line rather than
@@ -80,14 +80,14 @@ identify_by_molblock(some_molblock, sindex; tier=:mkey)  # loose only
 ```
 
 To search by more than the default identifier tag (see
-`DEFAULT_IDENTIFIER_TAGS`), pass `identifier_tags` when *building* the
+`DEFAULT_IDENTIFIER_TAGS`), pass `identifier_tags` when building the
 substances tables (it controls what gets indexed into the long
 `identifiers` table in the first place), then the matching `tags` kwarg to
 `build_identifier_index`.
 
 ## Known gaps / next decisions
 
-1. **`assoc_type` in `cid_links` isn't decoded.** `PUBCHEM_CID_ASSOCIATIONS`
+1. `assoc_type` in `cid_links` isn't decoded. `PUBCHEM_CID_ASSOCIATIONS`
    gives each substance a `<cid> <type>` pair per line (a real example:
    `15685509  1`), and `parse_substances` captures every pair as-is rather
    than assuming a single "the" CID per substance. What the numeric type
@@ -97,7 +97,7 @@ substances tables (it controls what gets indexed into the long
    a mixture's component associations pulling in unrelated CIDs for one
    identifier), that's the place to add a filter, once the type codes are
    figured out from a broader sample or PubChem's own documentation.
-2. **Scale.** `build_identifier_index`/`build_structure_index` load full
+2. Scale. `build_identifier_index`/`build_structure_index` load full
    `compounds`/`substances`/`identifiers` tables into memory and build
    in-process `Dict`/`groupby` indexes. Fine for a subset, but at full
    PubChem size (~118M compounds, ~300M+ substances) this may need to move

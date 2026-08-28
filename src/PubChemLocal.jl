@@ -26,4 +26,4 @@ export IdentifierIndex, build_identifier_index, identify
 export StructureIndex, build_structure_index, identify_by_structure,
        identify_by_smiles, identify_by_molblock
 
-end # module PubChemLocal
+end  # module PubChemLocal
