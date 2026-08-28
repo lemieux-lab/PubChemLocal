@@ -87,20 +87,8 @@ substances tables (it controls what gets indexed into the long
 
 ## Known gaps / next decisions
 
-1. `assoc_type` in `cid_links` isn't decoded. `PUBCHEM_CID_ASSOCIATIONS`
-   gives each substance a `<cid> <type>` pair per line (a real example:
-   `15685509  1`), and `parse_substances` captures every pair as-is rather
-   than assuming a single "the" CID per substance. What the numeric type
-   codes mean (same-connectivity vs. mixture-component vs. same-stereo,
-   etc.) hasn't been pinned down, so `identify()` currently treats every
-   association as an equally valid link. If a real build over-matches (e.g.
-   a mixture's component associations pulling in unrelated CIDs for one
-   identifier), that's the place to add a filter, once the type codes are
-   figured out from a broader sample or PubChem's own documentation.
-2. Scale. `build_identifier_index`/`build_structure_index` load full
+1. Scaling... `build_identifier_index`/`build_structure_index` load full
    `compounds`/`substances`/`identifiers` tables into memory and build
    in-process `Dict`/`groupby` indexes. Fine for a subset, but at full
    PubChem size (~118M compounds, ~300M+ substances) this may need to move
-   to something that doesn't require materializing everything per session,
-   e.g. DuckDB querying the Arrow files directly. Deferred until we know the
-   actual working-set size after a real build.
+   to something that doesn't require materializing everything per session?
